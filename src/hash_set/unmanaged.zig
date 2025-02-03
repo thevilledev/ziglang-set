@@ -406,18 +406,14 @@ pub fn HashSetUnmanagedWithContext(comptime E: type, comptime Context: type, com
         pub fn pop(self: *Self) ?E {
             if (self.unmanaged.count() > 0) {
                 var iter = self.unmanaged.iterator();
-                // NOTE: No in-place mutation as it invalidates live iterators.
-                // So a temporary capture is taken.
-                var capturedElement: E = undefined;
-                while (iter.next()) |entry| {
-                    capturedElement = entry.key_ptr.*;
-                    break;
+                // Directly get first element without loop
+                if (iter.next()) |entry| {
+                    const capturedElement = entry.key_ptr.*;
+                    _ = self.unmanaged.remove(capturedElement);
+                    return capturedElement;
                 }
-                _ = self.unmanaged.remove(capturedElement);
-                return capturedElement;
-            } else {
-                return null;
             }
+            return null;
         }
 
         /// remove discards a single element from the Set
@@ -972,4 +968,27 @@ test "custom hash function string usage" {
     _ = try A.add(testing.allocator, "Hello\r");
     _ = try A.add(testing.allocator, "Hello\t");
     try expectEqual(7, A.cardinality());
+}
+
+test "pop performance benchmark" {
+    const allocator = testing.allocator;
+    const num_elements = 100000;
+
+    var set = HashSetUnmanaged(u32).init();
+    defer set.deinit(allocator);
+
+    // Populate set
+    for (0..num_elements) |i| {
+        _ = try set.add(allocator, @intCast(i));
+    }
+
+    const start_time = std.time.nanoTimestamp();
+
+    // Pop all elements
+    while (set.pop() != null) {}
+
+    const end_time = std.time.nanoTimestamp();
+    const elapsed_ms = @divTrunc(end_time - start_time, 1_000_000);
+
+    std.debug.print("\nUnmanaged set pop() of {d} elements took {d}ms\n", .{ num_elements, elapsed_ms });
 }

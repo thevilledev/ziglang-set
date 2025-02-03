@@ -406,18 +406,14 @@ pub fn HashSetManagedWithContext(comptime E: type, comptime Context: type, compt
         pub fn pop(self: *Self) ?E {
             if (self.map.cardinality() > 0) {
                 var iter = self.map.iterator();
-                // NOTE: No in-place mutation as it invalidates live iterators.
-                // So a temporary capture is taken.
-                var capturedElement: E = undefined;
-                while (iter.next()) |pVal| {
-                    capturedElement = pVal.*;
-                    break;
+                // Directly get first element without loop
+                if (iter.next()) |pVal| {
+                    const capturedElement = pVal.*;
+                    _ = self.map.remove(capturedElement);
+                    return capturedElement;
                 }
-                _ = self.map.remove(capturedElement);
-                return capturedElement;
-            } else {
-                return null;
             }
+            return null;
         }
 
         /// remove discards a single element from the Set
@@ -895,4 +891,27 @@ test "custom hash function" {
 
     _ = try set.add(123);
     try expect(set.contains(123));
+}
+
+test "pop performance benchmark" {
+    const allocator = testing.allocator;
+    const num_elements = 100000;
+
+    var set = HashSetManaged(u32).init(allocator);
+    defer set.deinit();
+
+    // Populate set
+    for (0..num_elements) |i| {
+        _ = try set.add(@intCast(i));
+    }
+
+    const start_time = std.time.nanoTimestamp();
+
+    // Pop all elements
+    while (set.pop() != null) {}
+
+    const end_time = std.time.nanoTimestamp();
+    const elapsed_ms = @divTrunc(end_time - start_time, 1_000_000);
+
+    std.debug.print("\nManaged set pop() of {d} elements took {d}ms\n", .{ num_elements, elapsed_ms });
 }
